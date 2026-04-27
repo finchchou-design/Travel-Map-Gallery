@@ -1,4 +1,4 @@
-# 🌍 TravelMapGallery (极简旅行地图相册)
+## 🌍 TravelMapGallery (极简旅行地图相册)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Leaflet](https://img.shields.io/badge/Leaflet-1.9.4-green.svg)](https://leafletjs.com/)
@@ -21,7 +21,7 @@
 * **地图基建**: [Leaflet](https://leafletjs.com/) (强制挂载 Canvas Renderer) + [MarkerCluster](https://github.com/Leaflet/Leaflet.markercluster)
 * **EXIF 解析**: [exifr](https://github.com/MikeKovarik/exifr)
 * **样式框架**: [Tailwind CSS](https://tailwindcss.com/) (CDN)
-* **数据存储**: IndexedDB (本地) / Firebase (可选云端同步)
+* **数据存储**: IndexedDB (本地默认) / Firebase (可选云端同步)
 
 ## 🚀 快速开始
 
@@ -30,3 +30,4 @@
 1. 克隆或下载本项目：
    ```bash
    git clone [https://github.com/你的用户名/TravelMapGallery.git](https://github.com/你的用户名/TravelMapGallery.git)
+   
