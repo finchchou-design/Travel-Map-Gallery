@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的旅行地图相册</title>
+    
+    <!-- 引入 Leaflet 地图 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    
+    <!-- 引入专业的 MarkerCluster 点位聚合插件 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
+    
+    <!-- 引入 exifr 解析库，用于本地提取照片 GPS -->
+    <script src="https://cdn.jsdelivr.net/npm/exifr/dist/full.umd.js"></script>
+    
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        /* Apple 风格字体栈 */
+        body, html { 
+            margin: 0; padding: 0; height: 100%; 
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif; 
+            overflow: hidden; 
+            -webkit-font-smoothing: antialiased;
+        }
+        
+        input[type="file"] { display: none; }
+        #map { height: 100%; width: 100%; z-index: 1; position: absolute; top: 0; left: 0; background: #f9f9f9; }
+        
+        .sidebar-scroll { scrollbar-width: none; }
+        .sidebar-scroll::-webkit-scrollbar { display: none; }
+
+        /* 解决拖拽和缩放时动画冲突的关键类 */
+        .no-transition { transition: none !important; }
+
+        /* ================= 高级定制化地图标记 ================= */
+        .custom-apple-marker { background: transparent; border: none; }
+        .marker-ring {
+            width: 46px; height: 46px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(8px);
+            border-radius: 50%;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0,0,0,0.04);
+            display: flex; align-items: center; justify-content: center;
+            position: relative;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            cursor: pointer;
+        }
+        .marker-ring:hover { transform: scale(1.1) translateY(-4px); z-index: 1000 !important; }
+        .marker-ring::after { 
+            content: ''; position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%);
+            border-width: 6px 6px 0; border-style: solid; border-color: rgba(255, 255, 255, 0.95) transparent transparent transparent;
+        }
+        .marker-photo { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; }
+
+        /* 顺序数字角标 */
+        .marker-badge {
+            position: absolute; top: -6px; right: -6px;
+            background: #007AFF; color: white; font-size: 11px; font-weight: 800;
+            width: 20px; height: 20px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.15); z-index: 10;
+        }
+
+        /* ================= 高级地图弹窗 ================= */
+        .leaflet-popup-content-wrapper { 
+            border-radius: 20px !important; 
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.05) !important; 
+            padding: 0 !important; 
+            background: rgba(255, 255, 255, 0.9) !important;
+            backdrop-filter: blur(20px) !important; -webkit-backdrop-filter: blur(20px) !important;
+            overflow: hidden;
+        }
+        .leaflet-popup-tip-container { display: none; } 
+        .leaflet-popup-content { margin: 0 !important; width: 280px !important; line-height: 1.5 !important; }
+        .popup-img-container { width: 100%; height: 180px; overflow: hidden; background: #f3f4f6; }
+        .popup-img-container img { width: 100%; height: 100%; object-fit: cover; }
+        .popup-text { padding: 18px 20px; }
+        .popup-text h3 { margin: 0 0 4px 0; font-size: 17px; color: #000; font-weight: 600; letter-spacing: -0.3px; }
+        .popup-text p.date { margin: 0 0 10px 0; font-size: 13px; color: #007AFF; font-weight: 500; }
+        .popup-text p.desc { margin: 0; font-size: 14px; color: #4a4a4a; line-height: 1.5; white-space: pre-wrap; }
+        
+        .leaflet-container a.leaflet-popup-close-button {
+            top: 12px; right: 12px; width: 26px; height: 26px; background: rgba(0,0,0,0.4); border-radius: 50%;
+            color: white; font-size: 14px; line-height: 26px; font-weight: bold; text-align: center; padding: 0; backdrop-filter: blur(4px); transition: background 0.2s;
+        }
+        .leaflet-container a.leaflet-popup-close-button:hover { background: rgba(0,0,0,0.6); color: white; }
+
+        /* ================= 极简高级的聚合气泡 ================= */
+        .apple-cluster-wrapper { background: transparent; border: none; }
+        .apple-cluster {
+            background-color: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 50%;
+            box-shadow: 0 8px 24px rgba(0, 122, 255, 0.2), 0 0 0 1.5px rgba(255,255,255,0.8) inset;
+            color: #007AFF; font-weight: 700; font-size: 16px; display: flex; align-items: center; justify-content: center;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s;
+        }
+        .apple-cluster:hover { transform: scale(1.1); box-shadow: 0 12px 32px rgba(0, 122, 255, 0.3), 0 0 0 1.5px rgba(255,255,255,1) inset; }
+
+        .apple-shadow { box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08); }
+        .apple-glass { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px); }
+        
+        #toast {
+            position: fixed; top: 40px; left: 50%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.8); color: white; padding: 12px 24px;
+            border-radius: 30px; z-index: 9999; display: none; font-size: 14px; font-weight: 500; backdrop-filter: blur(10px); transition: opacity 0.3s, transform 0.3s; box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .modal-overlay { background-color: rgba(0, 0, 0, 0.25); backdrop-filter: blur(8px); }
+        .modal-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(20px); border-radius: 24px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
+
+        .apple-map-tiles { filter: saturate(0.3) brightness(1.02) contrast(1.05); transition: filter 0.3s ease; }
+
+        /* ================= PIP 无极缩放边框把手 ================= */
+        .resize-handle { position: absolute; z-index: 30; }
+        .resize-handle.n { top: -6px; left: 10px; right: 10px; height: 12px; cursor: ns-resize; }
+        .resize-handle.s { bottom: -6px; left: 10px; right: 10px; height: 12px; cursor: ns-resize; }
+        .resize-handle.e { top: 10px; bottom: 10px; right: -6px; width: 12px; cursor: ew-resize; }
+        .resize-handle.w { top: 10px; bottom: 10px; left: -6px; width: 12px; cursor: ew-resize; }
+        .resize-handle.nw { top: -6px; left: -6px; width: 18px; height: 18px; cursor: nwse-resize; }
+        .resize-handle.ne { top: -6px; right: -6px; width: 18px; height: 18px; cursor: nesw-resize; }
+        .resize-handle.sw { bottom: -6px; left: -6px; width: 18px; height: 18px; cursor: nesw-resize; }
+        .resize-handle.se { bottom: -6px; right: -6px; width: 18px; height: 18px; cursor: nwse-resize; }
+    </style>
+</head>
+<body class="relative">
+
+    <!-- 侧边栏 -->
+    <div class="absolute top-0 left-0 h-full w-full md:w-[380px] apple-glass shadow-[1px_0_20px_rgba(0,0,0,0.05)] z-10 flex flex-col pointer-events-auto border-r border-white/40">
+        <div class="px-7 pt-10 pb-6 border-b border-gray-200/50">
+            <div class="flex justify-between items-center mb-5"><h1 class="text-[26px] font-bold text-gray-900 tracking-tight">地图回忆录</h1></div>
+            <div class="flex gap-2 mb-3">
+                <select id="trip-selector" class="flex-1 bg-white/60 border-0 text-gray-900 text-[15px] font-medium rounded-xl focus:ring-2 focus:ring-[#007AFF] block w-full py-3 px-4 shadow-sm outline-none transition cursor-pointer" onchange="switchTrip(this.value)"></select>
+                <button id="btn-play" onclick="togglePlayback()" class="bg-[#007AFF]/10 hover:bg-[#007AFF]/20 text-[#007AFF] rounded-xl px-3.5 transition shadow-sm flex justify-center items-center" title="回放足迹">
+                    <svg id="icon-play" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg>
+                    <svg id="icon-pause" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg>
+                </button>
+                <button onclick="deleteCurrentTrip()" class="bg-red-50 hover:bg-red-100 text-red-500 rounded-xl px-3 transition shadow-sm" title="删除相册"><svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                <button onclick="openNewTripModal()" class="bg-[#007AFF]/10 hover:bg-[#007AFF]/20 text-[#007AFF] font-semibold rounded-xl text-[15px] px-3 transition shadow-sm">新建</button>
+            </div>
+            <label class="flex items-center justify-center w-full py-3.5 px-4 bg-[#007AFF] text-white font-semibold rounded-xl cursor-pointer hover:bg-[#005bb5] transition shadow-[0_4px_14px_rgba(0,122,255,0.39)] group">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                添加回忆照片<input type="file" id="photo-upload" accept="image/jpeg, image/png, image/heic, image/heif" multiple>
+            </label>
+        </div>
+        <div class="flex-1 overflow-y-auto sidebar-scroll p-7 pt-4" id="timeline-container"></div>
+    </div>
+
+    <!-- 地图容器 -->
+    <div id="map"></div>
+
+    <!-- ================= 画中画 (PIP) 自由窗体 ================= -->
+    <div id="playback-pip" class="fixed z-[1000] apple-glass rounded-[20px] shadow-[0_20px_40px_rgba(0,0,0,0.15)] border border-white/60 overflow-hidden opacity-0 scale-95 pointer-events-none transition-all duration-500 ease-out flex flex-col" 
+         style="bottom: 40px; right: 40px; width: 288px; height: 320px; min-width: 240px; min-height: 280px; max-width: 80vw; max-height: 80vh;">
+        
+        <!-- 八向缩放句柄 -->
+        <div class="resize-handle n" data-dir="n"></div>
+        <div class="resize-handle s" data-dir="s"></div>
+        <div class="resize-handle e" data-dir="e"></div>
+        <div class="resize-handle w" data-dir="w"></div>
+        <div class="resize-handle nw" data-dir="nw"></div>
+        <div class="resize-handle ne" data-dir="ne"></div>
+        <div class="resize-handle sw" data-dir="sw"></div>
+        <div class="resize-handle se" data-dir="se"></div>
+
+        <!-- 顶部拖拽把手 -->
+        <div id="pip-drag-handle" class="absolute top-0 left-0 w-full h-14 z-20 cursor-move flex justify-center items-start pt-3 bg-gradient-to-b from-black/50 via-black/20 to-transparent group" title="按住拖动窗口">
+            <div class="w-12 h-1.5 bg-white/60 group-hover:bg-white rounded-full shadow-sm transition-colors pointer-events-none"></div>
+        </div>
+
+        <div class="w-full relative flex-1 min-h-[140px]" id="pip-img-container">
+            <img id="pip-img" src="" class="w-full h-full object-cover pointer-events-none" />
+            <div class="absolute top-3 right-3 bg-black/50 backdrop-blur-md text-white text-[11px] font-bold px-2.5 py-1 rounded-full pointer-events-none" id="pip-counter">1 / 10</div>
+            <div class="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-black/60 to-transparent pointer-events-none"></div>
+            <p id="pip-date" class="absolute bottom-3 left-4 text-[11px] font-medium text-white/90 tracking-wide pointer-events-none"></p>
+        </div>
+        
+        <div class="p-4 bg-white/50 backdrop-blur-md flex-shrink-0 flex flex-col pointer-events-none h-auto">
+            <h4 id="pip-title" class="font-bold text-gray-900 text-[15px] mb-1.5 line-clamp-1"></h4>
+            <p id="pip-desc" class="text-[13px] text-gray-600 line-clamp-2 leading-relaxed"></p>
+        </div>
+    </div>
+
+    <!-- 提示与模态框 -->
+    <div id="toast"></div>
+    <div id="new-trip-modal" class="fixed inset-0 z-[2000] hidden flex items-center justify-center modal-overlay">
+        <div class="modal-card w-80 p-6">
+            <h3 class="text-[17px] font-semibold text-center text-gray-900 mb-4">创建新相册</h3>
+            <input type="text" id="new-trip-name" placeholder="例如：2026 冰岛游" class="bg-gray-100/50 border border-gray-200 text-gray-900 text-[15px] rounded-xl focus:ring-2 focus:ring-[#007AFF] outline-none block w-full p-3.5 mb-6 text-center font-medium">
+            <div class="flex justify-between gap-3 border-t border-gray-100 pt-4 mt-2">
+                <button onclick="closeModal('new-trip-modal')" class="flex-1 py-2.5 text-[15px] font-semibold text-gray-500 hover:text-gray-800 transition">取消</button>
+                <div class="w-[1px] bg-gray-200"></div>
+                <button onclick="saveNewTrip()" class="flex-1 py-2.5 text-[15px] font-semibold text-[#007AFF] transition">创建</button>
+            </div>
+        </div>
+    </div>
+    <div id="edit-photo-modal" class="fixed inset-0 z-[2000] hidden flex items-center justify-center modal-overlay">
+        <div class="modal-card w-[90%] md:w-[480px] p-7 flex flex-col max-h-[90vh]">
+            <h3 class="text-[19px] font-bold text-gray-900 mb-6 flex-shrink-0">背后的故事</h3>
+            <div class="overflow-y-auto flex-1 sidebar-scroll">
+                <input type="hidden" id="edit-photo-id">
+                <div class="mb-5"><label class="block mb-2 text-[13px] font-semibold text-gray-500 uppercase tracking-wider">地点</label><input type="text" id="edit-photo-location" class="bg-gray-50 border-0 text-gray-900 text-[15px] font-medium rounded-xl focus:ring-2 focus:ring-[#007AFF] block w-full p-3.5 outline-none shadow-inner"></div>
+                <div class="mb-2"><label class="block mb-2 text-[13px] font-semibold text-gray-500 uppercase tracking-wider">日记</label><textarea id="edit-photo-desc" rows="5" class="bg-gray-50 border-0 text-gray-900 text-[15px] leading-relaxed rounded-xl focus:ring-2 focus:ring-[#007AFF] block w-full p-4 outline-none resize-none shadow-inner"></textarea></div>
+            </div>
+            <div class="flex justify-end gap-3 mt-8 flex-shrink-0">
+                <button onclick="closeModal('edit-photo-modal')" class="px-5 py-3 text-[15px] font-semibold text-gray-600 bg-gray-100 rounded-full transition">取消</button>
+                <button onclick="savePhotoDetails()" class="px-6 py-3 text-[15px] font-semibold text-white bg-[#007AFF] rounded-full transition shadow-md">完成</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // 引入 Firebase 依赖库 (备用)
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ================= 全局核心变量 =================
+        let L;
+        let map;
+        let markersMap = {}; 
+        let polylineGlow = null; 
+        let polylineCore = null; 
+        let clusterGroup = null; 
+        let animatedLines = []; 
+
+        let appData = { currentTripId: 'trip-default', trips: [ { id: 'trip-default', name: '🌍 我的第一场旅行', photos: [] } ] };
+        let db, auth, currentUser, appId, useFirestore = false;
+
+        // ================= 存储系统配置 =================
+        // 【安全提示】: 如果你需要使用云端同步，请取消下方 firebaseConfig 的注释，并填入你真实的密钥。
+        // 开源或公开分享代码时，请务必保持此处为空白或留着占位符！
+        const firebaseConfig = null; 
+        /* const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+        */
+
+        // 本地 IndexedDB 数据库引擎（无需网络、完全免费且安全，默认启用）
+        const idb = {
+            db: null,
+            init() { return new Promise((r) => { const req = indexedDB.open("TravelDB", 1); req.onupgradeneeded = (e) => e.target.result.createObjectStore("store"); req.onsuccess = (e) => { this.db = e.target.result; r(); }; req.onerror = () => r(); }); },
+            get(k) { return new Promise(r => { try { const req = this.db.transaction("store").objectStore("store").get(k); req.onsuccess = () => r(req.result); req.onerror = () => r(null); } catch(e) { r(null); } }); },
+            set(k, v) { return new Promise(r => { try { const req = this.db.transaction("store", "readwrite").objectStore("store").put(v, k); req.onsuccess = () => r(); req.onerror = () => r(); } catch(e) { r(); } }); }
+        };
+
+        // ================= 核心启动流程 =================
+        function bootstrapApp() {
+            if (!window.L || !window.L.markerClusterGroup || !window.exifr) { setTimeout(bootstrapApp, 100); return; }
+            L = window.L;
+
+            // 专属 SVG 渲染器，添加安全边距，防止线条消失闪烁
+            const myRenderer = L.svg({ padding: 5 });
+
+            map = L.map('map', { zoomControl: false, renderer: myRenderer }).setView([35.6895, 139.6917], 5);
+            L.control.zoom({ position: 'topright' }).addTo(map);
+            L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+                subdomains: ['1', '2', '3', '4'], maxZoom: 18, attribution: '&copy; 高德地图', className: 'apple-map-tiles'
+            }).addTo(map);
+
+            initStorage().then(() => renderApp());
+        }
+
+        // ================= PIP 拖拽逻辑注入 =================
+        const pipContainer = document.getElementById('playback-pip');
+        const pipDragHandle = document.getElementById('pip-drag-handle');
+        let isDraggingPIP = false; let dragStartMouseX, dragStartMouseY;
+
+        pipDragHandle.addEventListener('mousedown', (e) => {
+            isDraggingPIP = true; dragStartMouseX = e.clientX; dragStartMouseY = e.clientY;
+            
+            const rect = pipContainer.getBoundingClientRect();
+            pipContainer.style.bottom = 'auto'; pipContainer.style.right = 'auto';
+            pipContainer.style.left = rect.left + 'px'; pipContainer.style.top = rect.top + 'px';
+            pipContainer.classList.add('no-transition');
+            
+            document.addEventListener('mousemove', onPipMouseMove); document.addEventListener('mouseup', onPipMouseUp);
+            e.preventDefault(); 
+        });
+
+        function onPipMouseMove(e) {
+            if (!isDraggingPIP) return;
+            const dx = e.clientX - dragStartMouseX; const dy = e.clientY - dragStartMouseY;
+            dragStartMouseX = e.clientX; dragStartMouseY = e.clientY;
+            
+            let newLeft = (parseFloat(pipContainer.style.left) || 0) + dx; let newTop = (parseFloat(pipContainer.style.top) || 0) + dy;
+            const maxX = window.innerWidth - pipContainer.offsetWidth; const maxY = window.innerHeight - pipContainer.offsetHeight;
+            newLeft = Math.max(0, Math.min(newLeft, maxX)); newTop = Math.max(0, Math.min(newTop, maxY));
+            
+            pipContainer.style.left = newLeft + 'px'; pipContainer.style.top = newTop + 'px';
+        }
+
+        function onPipMouseUp() {
+            isDraggingPIP = false; pipContainer.classList.remove('no-transition');
+            document.removeEventListener('mousemove', onPipMouseMove); document.removeEventListener('mouseup', onPipMouseUp);
+        }
+
+        // ================= PIP 八向缩放引擎 =================
+        const resizeHandles = document.querySelectorAll('.resize-handle');
+        let isResizingPIP = false; let currentResizeDir = ''; let initialPipRect, initialResizeMouseX, initialResizeMouseY;
+
+        resizeHandles.forEach(handle => {
+            handle.addEventListener('mousedown', (e) => {
+                isResizingPIP = true; currentResizeDir = e.target.dataset.dir;
+                initialResizeMouseX = e.clientX; initialResizeMouseY = e.clientY;
+                
+                const rect = pipContainer.getBoundingClientRect();
+                initialPipRect = { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+
+                pipContainer.style.bottom = 'auto'; pipContainer.style.right = 'auto';
+                pipContainer.style.left = initialPipRect.left + 'px'; pipContainer.style.top = initialPipRect.top + 'px';
+                pipContainer.style.width = initialPipRect.width + 'px'; pipContainer.style.height = initialPipRect.height + 'px';
+                pipContainer.classList.add('no-transition');
+
+                document.addEventListener('mousemove', onPipResizeMove); document.addEventListener('mouseup', onPipResizeUp);
+                e.preventDefault(); e.stopPropagation(); 
+            });
+        });
+
+        function onPipResizeMove(e) {
+            if (!isResizingPIP) return;
+            const dx = e.clientX - initialResizeMouseX; const dy = e.clientY - initialResizeMouseY;
+            let newWidth = initialPipRect.width; let newHeight = initialPipRect.height;
+            let newLeft = initialPipRect.left; let newTop = initialPipRect.top;
+
+            const minWidth = 240, minHeight = 280;
+            const maxWidth = window.innerWidth * 0.9, maxHeight = window.innerHeight * 0.9;
+
+            if (currentResizeDir.includes('e')) newWidth = Math.min(Math.max(initialPipRect.width + dx, minWidth), maxWidth);
+            if (currentResizeDir.includes('w')) { newWidth = Math.min(Math.max(initialPipRect.width - dx, minWidth), maxWidth); newLeft = initialPipRect.left + (initialPipRect.width - newWidth); }
+            if (currentResizeDir.includes('s')) newHeight = Math.min(Math.max(initialPipRect.height + dy, minHeight), maxHeight);
+            if (currentResizeDir.includes('n')) { newHeight = Math.min(Math.max(initialPipRect.height - dy, minHeight), maxHeight); newTop = initialPipRect.top + (initialPipRect.height - newHeight); }
+
+            pipContainer.style.width = newWidth + 'px'; pipContainer.style.height = newHeight + 'px';
+            pipContainer.style.left = newLeft + 'px'; pipContainer.style.top = newTop + 'px';
+        }
+
+        function onPipResizeUp() {
+            isResizingPIP = false; pipContainer.classList.remove('no-transition');
+            document.removeEventListener('mousemove', onPipResizeMove); document.removeEventListener('mouseup', onPipResizeUp);
+        }
+
+        // ================= 数据读写抽象层 =================
+        async function initStorage() {
+            if (firebaseConfig && firebaseConfig.apiKey !== "YOUR_API_KEY") {
+                try {
+                    useFirestore = true; const app = initializeApp(firebaseConfig);
+                    auth = getAuth(app); db = getFirestore(app); appId = 'travel-map-pro';
+                    await signInAnonymously(auth);
+                    return new Promise((r) => { onAuthStateChanged(auth, async (user) => { if (user) { currentUser = user; await loadFromFirestore(); r(); } }); });
+                } catch (e) { console.error("Firebase 初始化失败，降级为本地存储", e); useFirestore = false; await idb.init(); await loadFromLocal(); }
+            } else { 
+                useFirestore = false; await idb.init(); await loadFromLocal(); 
+            }
+        }
+
+        async function loadFromFirestore() {
+            const tripsSnap = await getDocs(collection(db, 'artifacts', appId, 'users', currentUser.uid, 'trips'));
+            const photosSnap = await getDocs(collection(db, 'artifacts', appId, 'users', currentUser.uid, 'photos'));
+            let tripsMap = {}; tripsSnap.forEach(doc => { tripsMap[doc.id] = { ...doc.data(), photos: [] }; });
+            photosSnap.forEach(doc => { const photo = doc.data(); if (tripsMap[photo.tripId]) tripsMap[photo.tripId].photos.push(photo); });
+            const loadedTrips = Object.values(tripsMap); if (loadedTrips.length > 0) { appData.trips = loadedTrips; appData.currentTripId = loadedTrips[0].id; } else await saveTripToStorage(appData.trips[0]);
+        }
+
+        async function loadFromLocal() { const data = await idb.get('appData'); if (data && data.trips && data.trips.length > 0) appData = data; }
+        async function savePhotoToStorage(photo, tripId) { if (useFirestore && currentUser) await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'photos', photo.id), { ...photo, tripId }); else await idb.set('appData', appData); }
+        async function deletePhotoFromStorage(photoId) { if (useFirestore && currentUser) await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'photos', photoId)); else await idb.set('appData', appData); }
+        async function saveTripToStorage(trip) { if (useFirestore && currentUser) await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'trips', trip.id), { id: trip.id, name: trip.name }); else await idb.set('appData', appData); }
+        async function deleteTripFromStorage(tripId, photoIds) { if (useFirestore && currentUser) { await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'trips', tripId)); for(let pid of photoIds) await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'photos', pid)); } else await idb.set('appData', appData); }
+
+        function getCurrentTrip() { return appData.trips.find(t => t.id === appData.currentTripId) || appData.trips[0]; }
+        window.switchTrip = function(tripId) { if(isPlaybackActive) window.togglePlayback(); appData.currentTripId = tripId; renderApp(); };
+
+        // ================= 页面主渲染逻辑 =================
+        function renderApp() {
+            const selector = document.getElementById('trip-selector'); selector.innerHTML = '';
+            appData.trips.forEach(trip => { const option = document.createElement('option'); option.value = trip.id; option.textContent = trip.name; if (trip.id === appData.currentTripId) option.selected = true; selector.appendChild(option); });
+            const currentTrip = getCurrentTrip(); const photos = currentTrip.photos; photos.sort((a, b) => a.timestamp - b.timestamp);
+
+            if (clusterGroup) map.removeLayer(clusterGroup); if (polylineGlow) map.removeLayer(polylineGlow); if (polylineCore) map.removeLayer(polylineCore);
+            animatedLines.forEach(l => map.removeLayer(l)); animatedLines = []; markersMap = {};
+
+            const timelineContainer = document.getElementById('timeline-container'); timelineContainer.innerHTML = ''; const latlngs = [];
+
+            if (photos.length === 0) {
+                timelineContainer.innerHTML = `<div class="flex flex-col items-center justify-center h-[60vh] text-center p-6 text-gray-400"><svg class="w-14 h-14 mb-4 text-gray-300 drop-shadow-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg><p class="text-[15px] font-medium text-gray-500">这里还空空如也</p><p class="text-[13px] mt-1 text-gray-400">点击上方按钮，添加回忆照片</p></div>`;
+                return; 
+            }
+
+            clusterGroup = L.markerClusterGroup({
+                showCoverageOnHover: false, zoomToBoundsOnClick: true, maxClusterRadius: 40, spiderfyOnMaxZoom: true,
+                iconCreateFunction: function(cluster) {
+                    var count = cluster.getChildCount(); var size = count < 10 ? 42 : (count < 50 ? 48 : 54);
+                    return L.divIcon({ html: `<div class="apple-cluster" style="width:${size}px; height:${size}px;">${count}</div>`, className: 'apple-cluster-wrapper', iconSize: L.point(size, size) });
+                }
+            });
+
+            photos.forEach((photo, index) => {
+                const latlng = [photo.lat, photo.lng]; latlngs.push(latlng);
+                const customIcon = L.divIcon({ className: 'custom-apple-marker', html: `<div class="marker-ring"><img src="${photo.url}" class="marker-photo" /><div class="marker-badge">${index + 1}</div></div>`, iconSize: [46, 46], iconAnchor: [23, 51], popupAnchor: [0, -48] });
+                const marker = L.marker(latlng, { icon: customIcon }); markersMap[photo.id] = marker; clusterGroup.addLayer(marker); 
+                const popupHtml = `<div class="popup-img-container"><img src="${photo.url}" alt="照片"></div><div class="popup-text"><h3>${photo.locationName}</h3><p class="date">${photo.date}</p><p class="desc">${photo.desc}</p></div>`;
+                marker.bindPopup(popupHtml, { closeButton: true });
+
+                const isLast = index === photos.length - 1;
+                const timelineHtml = `
+                    <div class="relative pl-7 pb-8 group" id="timeline-item-${photo.id}">
+                        ${!isLast ? '<div class="absolute left-[11px] top-3 bottom-0 w-[2px] bg-gray-200 group-hover:bg-[#007AFF]/40 transition-colors rounded-full"></div>' : ''}
+                        <div class="absolute left-[5px] top-1.5 w-[14px] h-[14px] rounded-full border-[3px] border-white bg-[#007AFF] shadow-sm z-10 cursor-pointer hover:scale-125 transition-transform" onclick="flyToLocation('${photo.id}')"></div>
+                        <div class="bg-white/80 backdrop-blur-md rounded-[16px] p-4 border border-gray-100 apple-shadow hover:shadow-[0_12px_36px_rgba(0,0,0,0.1)] hover:-translate-y-0.5 transition-all relative overflow-hidden group-hover:bg-white">
+                            <div class="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onclick="openEditModal('${photo.id}')" class="p-1.5 text-gray-400 hover:text-[#007AFF] hover:bg-blue-50 rounded-full transition"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></button>
+                                <button onclick="deletePhoto('${photo.id}')" class="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                            </div>
+                            <div class="cursor-pointer" onclick="flyToLocation('${photo.id}')">
+                                <p class="text-[12px] font-semibold text-[#007AFF] mb-1.5 tracking-tight">${photo.date}</p>
+                                <h4 class="font-bold text-gray-900 text-[16px] mb-3 pr-16">${photo.locationName}</h4>
+                                <div class="flex gap-4">
+                                    <div class="w-[72px] h-[72px] rounded-xl overflow-hidden flex-shrink-0 bg-gray-100 border border-gray-100/50 shadow-sm"><img src="${photo.url}" class="w-full h-full object-cover"></div>
+                                    <p class="text-[13px] text-gray-500 line-clamp-3 leading-relaxed mt-0.5">${photo.desc}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>`;
+                timelineContainer.innerHTML += timelineHtml;
+            });
+            map.addLayer(clusterGroup);
+
+            if (latlngs.length > 1) {
+                polylineGlow = L.polyline(latlngs, { color: '#007AFF', weight: 12, opacity: 0.15, lineCap: 'round', lineJoin: 'round', noClip: true }).addTo(map);
+                polylineCore = L.polyline(latlngs, { color: '#007AFF', weight: 3.5, opacity: 1, lineCap: 'round', lineJoin: 'round', noClip: true }).addTo(map);
+                if(!window.isPlaybackActive) map.fitBounds(L.latLngBounds(latlngs), { padding: [80, 80], maxZoom: 14 });
+            } else if (latlngs.length === 1 && !window.isPlaybackActive) {
+                map.flyTo(latlngs[0], 14, { duration: 1.5 }); 
+            }
+        }
+
+        // ================= 播放/回放控制中心 =================
+        window.isPlaybackActive = false;
+        let playbackDelayObj = null;
+
+        window.togglePlayback = async function() {
+            const currentTrip = getCurrentTrip();
+            if (currentTrip.photos.length === 0) return showToast("相册为空，无法播放");
+
+            const pip = document.getElementById('playback-pip');
+            const iconPlay = document.getElementById('icon-play');
+            const iconPause = document.getElementById('icon-pause');
+
+            if (window.isPlaybackActive) {
+                window.isPlaybackActive = false;
+                clearTimeout(playbackDelayObj); map.stop(); 
+                pip.classList.add('opacity-0', 'scale-95', 'pointer-events-none'); pip.classList.remove('pointer-events-auto');
+                iconPlay.classList.remove('hidden'); iconPause.classList.add('hidden');
+                animatedLines.forEach(l => map.removeLayer(l)); animatedLines = []; renderApp();
+                return;
+            }
+
+            window.isPlaybackActive = true;
+            iconPlay.classList.add('hidden'); iconPause.classList.remove('hidden'); 
+            pip.classList.remove('opacity-0', 'scale-95', 'pointer-events-none'); pip.classList.add('pointer-events-auto');
+            showToast("🎬 旅途回放开始，请欣赏");
+
+            const photos = [...currentTrip.photos].sort((a, b) => a.timestamp - b.timestamp);
+            map.closePopup();
+            
+            if (polylineGlow) map.removeLayer(polylineGlow); if (polylineCore) map.removeLayer(polylineCore);
+            animatedLines.forEach(l => map.removeLayer(l)); animatedLines = [];
+
+            // 终极硬件流光防撕裂画线算法
+            function drawFlowLine(p1, p2, durationMs) {
+                let lat1 = p1[0], lng1 = p1[1]; let lat2 = p2[0], lng2 = p2[1];
+                if (lng2 - lng1 > 180) lng2 -= 360; else if (lng1 - lng2 > 180) lng2 += 360;
+                let safeP2 = [lat2, lng2];
+
+                let line = L.polyline([p1, safeP2], { color: '#007AFF', weight: 4, opacity: 0, lineCap: 'round', lineJoin: 'round', noClip: true }).addTo(map);
+                let glow = L.polyline([p1, safeP2], { color: '#007AFF', weight: 14, opacity: 0, lineCap: 'round', lineJoin: 'round', noClip: true }).addTo(map);
+                animatedLines.push(line, glow);
+
+                setTimeout(() => {
+                    [ { layer: line, targetOpacity: 1 }, { layer: glow, targetOpacity: 0.15 } ].forEach(({ layer, targetOpacity }) => {
+                        let el = layer.getElement(); if (!el) return;
+                        el.setAttribute('pathLength', '100'); el.style.strokeDasharray = '100'; el.style.strokeDashoffset = '100'; 
+                        layer.setStyle({ opacity: targetOpacity }); void el.getBoundingClientRect(); 
+                        const timing = 'cubic-bezier(0.25, 0.1, 0.25, 1.0)';
+                        el.style.transition = `stroke-dashoffset ${durationMs}ms ${timing}`; el.style.strokeDashoffset = '0'; 
+                    });
+                }, 30);
+            }
+
+            for (let i = 0; i < photos.length; i++) {
+                if (!window.isPlaybackActive) break; 
+                const photo = photos[i]; const latlng = [photo.lat, photo.lng];
+                document.getElementById('pip-img').src = photo.url; document.getElementById('pip-title').innerText = photo.locationName;
+                document.getElementById('pip-date').innerText = photo.date; document.getElementById('pip-desc').innerText = photo.desc || '在这里留下了美好的回忆...';
+                document.getElementById('pip-counter').innerText = `${i + 1} / ${photos.length}`;
+
+                if (i === 0) {
+                    map.flyTo(latlng, 15, { duration: 1.5 }); await new Promise(resolve => { playbackDelayObj = setTimeout(resolve, 3000); });
+                } else {
+                    const prevPhoto = photos[i-1]; const p1 = [prevPhoto.lat, prevPhoto.lng]; const p2 = latlng;
+                    const distance = map.distance(p1, p2); 
+                    
+                    if (distance < 50) { if(window.isPlaybackActive) await new Promise(resolve => { playbackDelayObj = setTimeout(resolve, 1500); }); continue; }
+
+                    const durationSec = Math.max(2.0, Math.min(2.0 + (distance / 300000), 5.5)); const durationMs = durationSec * 1000;
+                    if (distance < 8000) { map.panTo(p2, { animate: true, duration: durationSec, easeLinearity: 0.25 }); } else { map.flyTo(p2, 14, { duration: durationSec, easeLinearity: 0.25 }); }
+                    
+                    drawFlowLine(p1, p2, durationMs); await new Promise(resolve => { playbackDelayObj = setTimeout(resolve, durationMs + 2000); });
+                }
+            }
+
+            if (window.isPlaybackActive) {
+                window.togglePlayback(); showToast("✨ 旅途回放完毕", 3000);
+                const latlngs = photos.map(p => [p.lat, p.lng]); map.fitBounds(L.latLngBounds(latlngs), { padding: [80, 80], maxZoom: 14 });
+            }
+        }
+
+        // ================= 辅助函数与交互 =================
+        window.flyToLocation = function(photoId) { const marker = markersMap[photoId]; if (marker && clusterGroup) clusterGroup.zoomToShowLayer(marker, function () { marker.openPopup(); }); }
+        window.deleteCurrentTrip = async function() { if (appData.trips.length <= 1) return showToast("至少要保留一个相册哦！"); const currentTrip = getCurrentTrip(); if(confirm(`确定要删除相册 [${currentTrip.name}] 吗？操作不可恢复。`)) { if(window.isPlaybackActive) window.togglePlayback(); await deleteTripFromStorage(currentTrip.id, currentTrip.photos.map(p => p.id)); appData.trips = appData.trips.filter(t => t.id !== currentTrip.id); appData.currentTripId = appData.trips[0].id; renderApp(); } }
+        window.deletePhoto = async function(photoId) { if(confirm('删除这张照片？')) { if(window.isPlaybackActive) window.togglePlayback(); const currentTrip = getCurrentTrip(); currentTrip.photos = currentTrip.photos.filter(p => p.id !== photoId); await deletePhotoFromStorage(photoId); renderApp(); } }
+        window.openEditModal = function(photoId) { const photo = getCurrentTrip().photos.find(p => p.id === photoId); if (!photo) return; document.getElementById('edit-photo-id').value = photo.id; document.getElementById('edit-photo-location').value = photo.locationName; document.getElementById('edit-photo-desc').value = photo.desc; document.getElementById('edit-photo-modal').classList.remove('hidden'); }
+        window.savePhotoDetails = async function() { const photoId = document.getElementById('edit-photo-id').value; const photo = getCurrentTrip().photos.find(p => p.id === photoId); if (photo) { photo.locationName = document.getElementById('edit-photo-location').value || '未命名地点'; photo.desc = document.getElementById('edit-photo-desc').value || ''; await savePhotoToStorage(photo, getCurrentTrip().id); renderApp(); } closeModal('edit-photo-modal'); }
+        window.openNewTripModal = function() { document.getElementById('new-trip-name').value = ''; document.getElementById('new-trip-modal').classList.remove('hidden'); }
+        window.saveNewTrip = async function() { const name = document.getElementById('new-trip-name').value.trim(); if (!name) return; const newTrip = { id: 'trip-' + Date.now(), name: name, photos: [] }; appData.trips.push(newTrip); appData.currentTripId = newTrip.id; await saveTripToStorage(newTrip); renderApp(); closeModal('new-trip-modal'); }
+        window.closeModal = function(id) { document.getElementById(id).classList.add('hidden'); }
+        let toastTimeout; function showToast(msg, duration = 2500) { const toast = document.getElementById('toast'); toast.innerText = msg; toast.style.display = 'block'; setTimeout(() => toast.style.opacity = '1', 10); clearTimeout(toastTimeout); if (duration > 0) toastTimeout = setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.style.display = 'none', 300); }, duration); }
+
+        function compressImage(file) { return new Promise((r) => { const reader = new FileReader(); reader.onload = (e) => { const img = new Image(); img.onload = () => { const cvs = document.createElement('canvas'); const MAX_W = 1200; let w = img.width, h = img.height; if (w > MAX_W) { h *= MAX_W / w; w = MAX_W; } cvs.width = w; cvs.height = h; cvs.getContext('2d').drawImage(img, 0, 0, w, h); r(cvs.toDataURL('image/jpeg', 0.8)); }; img.src = e.target.result; }; reader.readAsDataURL(file); }); }
+        document.getElementById('photo-upload').addEventListener('change', async function(e) { const files = e.target.files; if (!files || files.length === 0) return; if(window.isPlaybackActive) window.togglePlayback(); showToast(`正在导入 ${files.length} 张照片...`, 0); let sCount = 0, fCount = 0; const currentTrip = getCurrentTrip(); for (let i = 0; i < files.length; i++) { try { const exif = await exifr.parse(files[i]); if (!exif || !exif.latitude || !exif.longitude) { fCount++; continue; } let fDate = "未知时间", ts = Date.now() + i; if (exif.DateTimeOriginal) { const d = new Date(exif.DateTimeOriginal); fDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; ts = d.getTime(); } const b64 = await compressImage(files[i]); const newPhoto = { id: 'p-' + Date.now() + '-' + i, lat: exif.latitude, lng: exif.longitude, date: fDate, timestamp: ts, url: b64, locationName: '新地点', desc: '' }; currentTrip.photos.push(newPhoto); await savePhotoToStorage(newPhoto, currentTrip.id); sCount++; } catch (err) { fCount++; } } renderApp(); if (fCount > 0) showToast(`成功 ${sCount} 张，跳过 ${fCount} 张(无位置信息)`, 4000); else showToast(`导入完成`, 2000); e.target.value = ''; });
+
+        bootstrapApp();
+    </script>
+</body>
+</html>
