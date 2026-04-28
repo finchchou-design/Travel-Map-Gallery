@@ -1,5 +1,10 @@
 # 🌍 Travel-Map-Gallery — 极简旅行地图相册
 
+> **🚀 在线预览地址：[https://finchchou-design.github.io/Travel-Map-Gallery/](https://finchchou-design.github.io/Travel-Map-Gallery/)**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Leaflet](https://img.shields.io/badge/Leaflet-1.9.4-green.svg)](https://leafletjs.com/)
+
 > 这不仅仅是一个在地图上打点的相册，它是一个追求极致性能与视觉交互的**硬件加速级旅行回忆录**。
 
 本项目旨在解决传统 Web 地图（如 Leaflet）在长距离飞行平移时出现的**轨迹撕裂、闪烁以及性能卡顿**问题，通过底层 Canvas 渲染与纯原生 CSS 掩码动画，实现了真正的「德芙般丝滑」。
@@ -87,12 +92,12 @@ const firebaseConfig = {
 };
 ```
 
-### ⚠️ 极客安全警告（非常重要）
+### ⚠️ 安全警告（非常重要）
 
 > **永远不要公开你的真实密钥！**
 > 填入真实密钥后的 HTML 文件是你个人的「私有云端版」。请**绝对不要**将包含真实 `apiKey` 的文件 Push 回公开的 GitHub 仓库，以免他人滥用耗尽你的免费云服务额度！
 >
-> **正确的开源姿势**：你在 GitHub 上分享或提交代码时，请务必保持代码库中的 `firebaseConfig` 变量为 `null` 或占位符状态。
+> **正确的开源方式**：在 GitHub 上分享或提交代码时，务必保持代码库中的 `firebaseConfig` 变量为 `null` 或占位符状态。
 
 ---
 
